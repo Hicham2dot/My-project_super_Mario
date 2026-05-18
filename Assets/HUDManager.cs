@@ -120,7 +120,7 @@ public class HUDManager : MonoBehaviour
         GameObject btnTxtGO = new GameObject("ButtonText");
         btnTxtGO.transform.SetParent(btnGO.transform, false);
         Text btnTxt = btnTxtGO.AddComponent<Text>();
-        btnTxt.text      = "Rejouer";
+        btnTxt.text      = "Replay";
         btnTxt.font      = font;
         btnTxt.fontSize  = 40;
         btnTxt.fontStyle = FontStyle.Bold;

@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\admin\\\\My project_super_Mario\\\\Assets\\\\\" -Recurse -Include *.unity, *.anim, *.controller, *.prefab | Select-Object FullName | head -50)"
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\admin\\\\My project_super_Mario\\\\Assets\\\\\" -Recurse -Include *.unity, *.anim, *.controller, *.prefab | Select-Object FullName | head -50)",
+      "Bash(git config *)",
+      "Bash(git push *)"
     ]
   }
 }
