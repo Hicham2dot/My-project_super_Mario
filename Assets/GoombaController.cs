@@ -22,30 +22,34 @@ public class GoombaController : MonoBehaviour
     [SerializeField] private string animDeath = "death";
 
     // ── références ────────────────────────────────────────────────
-    private Animator  animator;
-    private Rigidbody rb;
+    private Animator         animator;
+    private Rigidbody        rb;
+    private CapsuleCollider  col;
 
     // ── limites du Ground (X et Z) ────────────────────────────────
     private float boundMinX, boundMaxX;
     private float boundMinZ, boundMaxZ;
 
     // ── état interne ──────────────────────────────────────────────
-    private Vector3 moveDir    = Vector3.zero;
-    private Vector3 targetPos  = Vector3.zero;
-    private bool    isDead     = false;
+    private Vector3 moveDir     = Vector3.zero;
+    private Vector3 targetPos   = Vector3.zero;
+    private bool    isDead      = false;
     private string  currentAnim = "";
+    private bool    redirectNeeded = false; // signale à PatrolLoop de choisir une nouvelle cible
 
     // ─────────────────────────────────────────────────────────────
     void Start()
     {
-        rb       = GetComponent<Rigidbody>();
+        rb  = GetComponent<Rigidbody>();
+        col = GetComponent<CapsuleCollider>();
         animator = GetComponent<Animator>();
         if (animator == null) animator = GetComponentInChildren<Animator>();
 
-        rb.freezeRotation = true;
-        rb.constraints    = RigidbodyConstraints.FreezeRotationX
-                          | RigidbodyConstraints.FreezeRotationY
-                          | RigidbodyConstraints.FreezeRotationZ;
+        rb.freezeRotation        = true;
+        rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
+        rb.constraints = RigidbodyConstraints.FreezeRotationX
+                       | RigidbodyConstraints.FreezeRotationY
+                       | RigidbodyConstraints.FreezeRotationZ;
 
         ComputeGroundBounds();
         PickNewTarget();
@@ -65,13 +69,13 @@ public class GoombaController : MonoBehaviour
             return;
         }
 
-        Collider col = assignedGround.GetComponent<Collider>();
-        if (col != null)
+        Collider c = assignedGround.GetComponent<Collider>();
+        if (c != null)
         {
-            boundMinX = col.bounds.min.x;
-            boundMaxX = col.bounds.max.x;
-            boundMinZ = col.bounds.min.z;
-            boundMaxZ = col.bounds.max.z;
+            boundMinX = c.bounds.min.x;
+            boundMaxX = c.bounds.max.x;
+            boundMinZ = c.bounds.min.z;
+            boundMaxZ = c.bounds.max.z;
             return;
         }
 
@@ -96,34 +100,52 @@ public class GoombaController : MonoBehaviour
         if (isDead) return;
 
         rb.angularVelocity = Vector3.zero;
-        rb.linearVelocity  = new Vector3(moveDir.x * moveSpeed, rb.linearVelocity.y, moveDir.z * moveSpeed);
+
+        // Détection de bord : rayon vers le bas devant le Goomba.
+        // S'il n'y a plus de sol devant lui, on l'arrête et on demande une nouvelle cible.
+        if (moveDir != Vector3.zero && IsNearEdge())
+        {
+            moveDir         = Vector3.zero;
+            redirectNeeded  = true;
+            rb.linearVelocity = new Vector3(0f, rb.linearVelocity.y, 0f);
+            return;
+        }
+
+        rb.linearVelocity = new Vector3(moveDir.x * moveSpeed, rb.linearVelocity.y, moveDir.z * moveSpeed);
 
         if (moveDir != Vector3.zero)
             rb.MoveRotation(Quaternion.LookRotation(moveDir));
     }
 
-    // Choisit un point 2D (X, Z) aléatoire dans les limites du Ground
-    private void PickNewTarget()
+    // Vérifie si le sol disparaît juste devant le Goomba
+    private bool IsNearEdge()
     {
-        float tx = Random.Range(boundMinX + 0.3f, boundMaxX - 0.3f);
-        float tz = Random.Range(boundMinZ + 0.3f, boundMaxZ - 0.3f);
-        targetPos = new Vector3(tx, transform.position.y, tz);
-
-        Vector3 dir = new Vector3(tx - transform.position.x, 0f, tz - transform.position.z);
-        moveDir = dir.magnitude > 0.01f ? dir.normalized : Vector3.forward;
+        // Utilise les bounds monde pour la distance de projection
+        float stepAhead = Mathf.Max(col.bounds.extents.x, col.bounds.extents.z, 0.2f) + 0.15f;
+        Vector3 checkPos = transform.position + moveDir * stepAhead + Vector3.up * 0.2f;
+        return !Physics.Raycast(checkPos, Vector3.down, 1.0f, ~0, QueryTriggerInteraction.Ignore);
     }
 
     private IEnumerator PatrolLoop()
     {
         while (!isDead)
         {
-            // Marche vers la cible (distance 2D horizontale)
+            redirectNeeded = false;
+            float elapsed  = 0f;
+
+            // Marche vers la cible, avec timeout pour les cas de blocage
             while (!isDead)
             {
+                if (redirectNeeded) break;
+
                 float dist = Vector2.Distance(
                     new Vector2(transform.position.x, transform.position.z),
                     new Vector2(targetPos.x, targetPos.z));
-                if (dist <= 0.2f) break;
+                if (dist <= 0.3f) break;
+
+                elapsed += Time.fixedDeltaTime;
+                if (elapsed > 6f) break; // timeout : bloqué par un obstacle → nouvelle cible
+
                 yield return new WaitForFixedUpdate();
             }
 
@@ -132,12 +154,30 @@ public class GoombaController : MonoBehaviour
             // Pause sur place
             moveDir = Vector3.zero;
             rb.linearVelocity = new Vector3(0f, rb.linearVelocity.y, 0f);
-            float pause = Random.Range(dirChangeMinTime, dirChangeMaxTime);
-            yield return new WaitForSeconds(pause);
+
+            // Pas de pause si on a redirigé (bord ou blocage) : rechoisir immédiatement
+            if (!redirectNeeded)
+            {
+                float pause = Random.Range(dirChangeMinTime, dirChangeMaxTime);
+                yield return new WaitForSeconds(pause);
+            }
 
             if (!isDead)
+            {
                 PickNewTarget();
+                PlayAnim(animWalk);
+            }
         }
+    }
+
+    private void PickNewTarget()
+    {
+        float tx = Random.Range(boundMinX + 0.5f, boundMaxX - 0.5f);
+        float tz = Random.Range(boundMinZ + 0.5f, boundMaxZ - 0.5f);
+        targetPos = new Vector3(tx, transform.position.y, tz);
+
+        Vector3 dir = new Vector3(tx - transform.position.x, 0f, tz - transform.position.z);
+        moveDir = dir.magnitude > 0.01f ? dir.normalized : Vector3.forward;
     }
 
     // ── Collision avec Mario ──────────────────────────────────────
@@ -198,7 +238,6 @@ public class GoombaController : MonoBehaviour
         animator.CrossFade(animName, 0.1f);
     }
 
-    // ── Gizmo : visualise les limites du Ground ───────────────────
     void OnDrawGizmosSelected()
     {
         if (!Application.isPlaying) return;

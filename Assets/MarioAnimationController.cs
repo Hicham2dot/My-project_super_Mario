@@ -125,13 +125,17 @@ public class MarioAnimationController : MonoBehaviour
         if (moveInput == Vector3.zero)
         {
             rb.linearVelocity = new Vector3(0f, rb.linearVelocity.y, 0f);
-            rb.constraints = RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationZ
-                           | RigidbodyConstraints.FreezePositionX | RigidbodyConstraints.FreezePositionZ;
+            rb.constraints = RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationZ;
         }
         else
         {
             rb.constraints = RigidbodyConstraints.FreezeRotationX | RigidbodyConstraints.FreezeRotationZ;
             Vector3 hVel = moveInput * currentSpeed;
+
+            // Empêche de pousser dans un obstacle statique (cylindres, murs) et de le traverser
+            if (IsBlockedBy(moveInput, hVel.magnitude * Time.fixedDeltaTime))
+                hVel = Vector3.zero;
+
             rb.linearVelocity = new Vector3(hVel.x, rb.linearVelocity.y, hVel.z);
         }
 
@@ -146,6 +150,32 @@ public class MarioAnimationController : MonoBehaviour
             rb.linearVelocity += Vector3.up * Physics.gravity.y * (fallGravityMult - 1f) * Time.fixedDeltaTime;
         else if (rb.linearVelocity.y > 0f && !holdJump)
             rb.linearVelocity += Vector3.up * Physics.gravity.y * (releaseGravityMult - 1f) * Time.fixedDeltaTime;
+    }
+
+    // Détecte un obstacle solide droit devant dans la direction de déplacement.
+    // On bloque tout sauf soi-même et les ennemis (Goomba), qui doivent rester
+    // traversables pour infliger des dégâts au contact. Le sol est exclu via groundMask.
+    private bool IsBlockedBy(Vector3 dir, float moveDist)
+    {
+        float castRadius = col.radius * 0.95f;
+        float halfSpine  = Mathf.Max(0f, col.height * 0.5f - col.radius);
+        Vector3 center   = transform.position + col.center;
+        Vector3 top      = center + Vector3.up   * halfSpine;
+        Vector3 bottom   = center + Vector3.down * halfSpine;
+        // Marge généreuse : Mario s'arrête nettement avant l'obstacle,
+        // donc aucune pénétration ni recul à l'arrêt.
+        float dist = moveDist + 0.15f;
+        int   mask = ~groundMask.value;   // tout sauf le sol
+
+        RaycastHit[] hits = Physics.CapsuleCastAll(top, bottom, castRadius, dir, dist,
+                                                   mask, QueryTriggerInteraction.Ignore);
+        foreach (RaycastHit h in hits)
+        {
+            if (h.collider.transform.IsChildOf(transform)) continue;          // soi-même
+            if (h.collider.GetComponentInParent<GoombaController>() != null) continue; // ennemi
+            return true;   // obstacle solide (cylindre, mur)
+        }
+        return false;
     }
 
     private void CheckGrounded()
