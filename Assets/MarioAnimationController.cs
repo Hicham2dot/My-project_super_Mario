@@ -1,4 +1,8 @@
+using System;
 using System.Collections;
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
 using UnityEngine;
 
 [RequireComponent(typeof(Rigidbody))]
@@ -33,7 +37,13 @@ public class MarioAnimationController : MonoBehaviour
     private Quaternion targetRotation = Quaternion.identity;
     private bool       rotationDirty  = false;
 
-    // Position sauvegardée avant toute physique = vrai point de départ
+    [Header("Bluetooth UDP")]
+    [SerializeField] private int udpPort = 5005;
+
+    private UdpClient     _udp;
+    private string        _gesture = "NONE";
+    private readonly object _udpLock = new object();
+
     public Vector3 InitialPosition { get; private set; }
 
     void Awake()
@@ -61,6 +71,10 @@ public class MarioAnimationController : MonoBehaviour
         rb.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
         rb.interpolation = RigidbodyInterpolation.Interpolate;
 
+        _udp = new UdpClient(udpPort);
+        _udp.BeginReceive(OnUdpReceive, null);
+        Debug.Log($"[Mario] Listening for Bluetooth gestures on UDP port {udpPort}");
+
         PhysicsMaterial pm = new PhysicsMaterial("Mario_NoFriction")
         {
             dynamicFriction = 0f,
@@ -77,12 +91,15 @@ public class MarioAnimationController : MonoBehaviour
     {
         if (isDead) return;
 
-        bool right   = Input.GetKey(KeyCode.RightArrow);
-        bool left    = Input.GetKey(KeyCode.LeftArrow);
-        bool forward = Input.GetKey(KeyCode.UpArrow);
-        bool back    = Input.GetKey(KeyCode.DownArrow);
-        bool run     = Input.GetKey(KeyCode.Z);
-        bool jump    = Input.GetKey(KeyCode.E);
+        string g;
+        lock (_udpLock) { g = _gesture; }
+
+        bool right   = g == "RIGHT";
+        bool left    = g == "LEFT";
+        bool forward = g == "FORWARD";
+        bool back    = g == "BACKWARD";
+        bool run     = false;
+        bool jump    = g == "JUMP";
 
         holdJump = jump;
 
@@ -248,6 +265,31 @@ public class MarioAnimationController : MonoBehaviour
         rb.isKinematic    = false;
         rb.linearVelocity = Vector3.zero;
         PlayAnimation("idle");
+    }
+
+    private void OnUdpReceive(IAsyncResult result)
+    {
+        try
+        {
+            IPEndPoint ep   = null;
+            byte[]     data = _udp.EndReceive(result, ref ep);
+            string     msg  = Encoding.UTF8.GetString(data).Trim();
+            lock (_udpLock) { _gesture = msg; }
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"[Mario] UDP error: {e.Message}");
+        }
+        finally
+        {
+            if (_udp != null)
+                _udp.BeginReceive(OnUdpReceive, null);
+        }
+    }
+
+    void OnDestroy()
+    {
+        _udp?.Close();
     }
 
 }

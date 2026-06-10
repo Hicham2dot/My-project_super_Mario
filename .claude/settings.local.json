@@ -3,7 +3,8 @@
     "allow": [
       "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\admin\\\\My project_super_Mario\\\\Assets\\\\\" -Recurse -Include *.unity, *.anim, *.controller, *.prefab | Select-Object FullName | head -50)",
       "Bash(git config *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Read(//c/Program Files/mosquitto/**)"
     ]
   }
 }
